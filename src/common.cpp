@@ -2,6 +2,7 @@
 #include <iostream>
 #include <fstream>
 #include <sstream>
+#include <map>
 
 // 셰이더 파일 읽기
 std::string readShaderFile(const char* filePath) {
@@ -146,13 +147,63 @@ bool loadOBJ(
 			temp_normals.push_back(normal);
 		}else if ( strcmp( lineHeader, "f" ) == 0 ){
 			std::string vertex1, vertex2, vertex3;
-			unsigned int vertexIndex[3], uvIndex[3], normalIndex[3];
-			int matches = fscanf(file, "%d/%d/%d %d/%d/%d %d/%d/%d\n", &vertexIndex[0], &uvIndex[0], &normalIndex[0], &vertexIndex[1], &uvIndex[1], &normalIndex[1], &vertexIndex[2], &uvIndex[2], &normalIndex[2] );
+			unsigned int vertexIndex[3] = {0}, uvIndex[3] = {0}, normalIndex[3] = {0};
+			
+			// Read the rest of the line
+			char line[256];
+			fgets(line, 256, file);
+			
+			// Try v/vt/vn format (vertex/texture/normal)
+			int matches = sscanf(line, "%d/%d/%d %d/%d/%d %d/%d/%d\n", 
+			                     &vertexIndex[0], &uvIndex[0], &normalIndex[0], 
+			                     &vertexIndex[1], &uvIndex[1], &normalIndex[1], 
+			                     &vertexIndex[2], &uvIndex[2], &normalIndex[2]);
+			
 			if (matches != 9){
-				printf("File can't be read by our simple parser :-( Try exporting with other options\n");
+				// Try v//vn format (vertex//normal, no texture)
+				matches = sscanf(line, "%d//%d %d//%d %d//%d\n", 
+				                 &vertexIndex[0], &normalIndex[0], 
+				                 &vertexIndex[1], &normalIndex[1], 
+				                 &vertexIndex[2], &normalIndex[2]);
+				
+				if (matches == 6) {
+					// Ensure we have at least one default UV
+					if (temp_uvs.empty()) {
+						temp_uvs.push_back(glm::vec2(0.0f, 0.0f));
+					}
+					uvIndex[0] = uvIndex[1] = uvIndex[2] = 1;
+				} else {
+					// Try v v v format (vertex only, no texture/normal)
+					matches = sscanf(line, "%d %d %d\n", 
+					                 &vertexIndex[0], &vertexIndex[1], &vertexIndex[2]);
+					
+					if (matches == 3) {
+						// Use default UV and normal
+						if (temp_uvs.empty()) {
+							temp_uvs.push_back(glm::vec2(0.0f, 0.0f));
+						}
+						if (temp_normals.empty()) {
+							temp_normals.push_back(glm::vec3(0.0f, 0.0f, 1.0f));
+						}
+						uvIndex[0] = uvIndex[1] = uvIndex[2] = 1;
+						normalIndex[0] = normalIndex[1] = normalIndex[2] = 1;
+					} else {
+						printf("File can't be read by our simple parser :-( Try exporting with other options\n");
+						printf("Unsupported face format: f %s", line);
+						fclose(file);
+						return false;
+					}
+				}
+			}
+			
+			// Validate indices
+			if (vertexIndex[0] == 0 || vertexIndex[1] == 0 || vertexIndex[2] == 0 ||
+			    normalIndex[0] == 0 || normalIndex[1] == 0 || normalIndex[2] == 0) {
+				printf("Invalid face indices in line: f %s", line);
 				fclose(file);
 				return false;
 			}
+			
 			vertexIndices.push_back(vertexIndex[0]);
 			vertexIndices.push_back(vertexIndex[1]);
 			vertexIndices.push_back(vertexIndex[2]);
@@ -177,6 +228,18 @@ bool loadOBJ(
 		unsigned int vertexIndex = vertexIndices[i];
 		unsigned int uvIndex = uvIndices[i];
 		unsigned int normalIndex = normalIndices[i];
+		
+		// Check bounds
+		if (vertexIndex < 1 || vertexIndex > temp_vertices.size() ||
+		    uvIndex < 1 || uvIndex > temp_uvs.size() ||
+		    normalIndex < 1 || normalIndex > temp_normals.size()) {
+			printf("Index out of bounds: v=%d(max:%zu), vt=%d(max:%zu), vn=%d(max:%zu)\n",
+			       vertexIndex, temp_vertices.size(), 
+			       uvIndex, temp_uvs.size(), 
+			       normalIndex, temp_normals.size());
+			fclose(file);
+			return false;
+		}
 		
 		// Get the attributes thanks to the index
 		glm::vec3 vertex = temp_vertices[ vertexIndex-1 ];

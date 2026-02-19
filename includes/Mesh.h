@@ -48,58 +48,65 @@ public:
                  const std::vector<glm::vec2> &uvs, const std::vector<glm::vec3> &normals)
   {
     // -----------------------------------------------------------------------
-    // Step 0: Vertex welding - merge vertices with same position
+    // Step 1: Vertex welding with spatial hashing (O(N))
     // -----------------------------------------------------------------------
-    std::vector<int> vertexRemap(numVertices); // Maps old index -> new index
+    printf("Building mesh with %d input vertices...\n", numVertices);
+    printf("Performing vertex welding...\n");
+    
+    const float GRID_SIZE = 0.001f;
+    const float EPSILON = 0.0001f;
+    std::map<std::tuple<int,int,int>, std::vector<int>> spatialHash;
+    std::vector<int> vertexMapping(numVertices); // unrolled index -> unique index
     
     for (int i = 0; i < numVertices; ++i)
     {
-      glm::vec3 pos = vertices[i];
+      if (i % 10000 == 0 && i > 0) {
+        printf("  Processing vertex %d/%d...\n", i, numVertices);
+      }
       
-      // Check if we already have a vertex at this position
-      int existingIdx = -1;
-      for (int j = 0; j < this->vertices.size(); ++j)
-      {
-        // Compare positions with small epsilon for floating point
-        if (glm::length(this->vertices[j].position - pos) < 0.0001f)
-        {
-          existingIdx = j;
-          break;
+      const glm::vec3& pos = vertices[i];
+      int gx = (int)std::floor(pos.x / GRID_SIZE);
+      int gy = (int)std::floor(pos.y / GRID_SIZE);
+      int gz = (int)std::floor(pos.z / GRID_SIZE);
+      auto key = std::make_tuple(gx, gy, gz);
+      
+      bool found = false;
+      auto it = spatialHash.find(key);
+      if (it != spatialHash.end()) {
+        for (int existingIdx : it->second) {
+          const glm::vec3& existingPos = this->vertices[existingIdx].position;
+          if (glm::distance(pos, existingPos) < EPSILON) {
+            vertexMapping[i] = existingIdx;
+            found = true;
+            break;
+          }
         }
       }
       
-      if (existingIdx == -1)
-      {
-        // New unique vertex
-        int newIndex = this->vertices.size();
-        vertexRemap[i] = newIndex;
+      if (!found) {
+        int newIdx = this->vertices.size();
         this->vertices.push_back(Vertex(pos, normals[i], uvs[i], glm::vec4(1.0f)));
-      }
-      else
-      {
-        // Reuse existing vertex, average normal and UV
-        vertexRemap[i] = existingIdx;
-        this->vertices[existingIdx].normal = glm::normalize(this->vertices[existingIdx].normal + normals[i]);
-        this->vertices[existingIdx].texCoord = (this->vertices[existingIdx].texCoord + uvs[i]) * 0.5f;
+        spatialHash[key].push_back(newIdx);
+        vertexMapping[i] = newIdx;
       }
     }
+    
+    printf("Vertex welding complete: %d -> %zu unique vertices\n", numVertices, this->vertices.size());
 
     // -----------------------------------------------------------------------
-    // Step 1: Build faces with remapped vertex indices
+    // Step 2: Build faces with remapped indices
     // -----------------------------------------------------------------------
     for (int i = 0; i < numVertices; i += 3)
     {
       if (i + 2 < numVertices)
       {
-        int v1 = vertexRemap[i];
-        int v2 = vertexRemap[i + 1];
-        int v3 = vertexRemap[i + 2];
+        int v1 = vertexMapping[i];
+        int v2 = vertexMapping[i + 1];
+        int v3 = vertexMapping[i + 2];
         
         // Skip degenerate faces
-        if (v1 == v2 || v2 == v3 || v3 == v1)
-          continue;
+        if (v1 == v2 || v2 == v3 || v3 == v1) continue;
         
-        // Create face with remapped vertex indices
         Face face(v1, v2, v3,
                   this->vertices[v1].position,
                   this->vertices[v2].position,
@@ -109,7 +116,7 @@ public:
     }
 
     // -----------------------------------------------------------------------
-    // Step 2: Extract unique edges from faces
+    // Step 3: Extract unique edges from faces
     // -----------------------------------------------------------------------
     // Use map to filter duplicate edges
     // Edge (v1, v2) === Edge (v2, v1), so normalize with min/max
