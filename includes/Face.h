@@ -1,11 +1,5 @@
-/**
- * Face.h
- * 
- * 삼각형 면 (Triangle Face)
- * - 3개의 vertex 인덱스
- * - 면 법선 (normal)
- * - 평면 방정식 (plane equation): ax + by + cz + d = 0
- */
+#ifndef FACE_H
+#define FACE_H
 
 #include <iostream>
 #include <vector>
@@ -17,38 +11,30 @@
 class Face
 {
 public:
-  int v1, v2, v3;              // Vertex indices (정점 인덱스)
-  glm::vec3 normal;            // Face normal (면의 법선)
-  glm::vec4 planeEquation;     // [a, b, c, d] for ax + by + cz + d = 0
+  int v1, v2, v3; // vertex indices
+  glm::vec3 normal;
+  glm::vec4 planeEquation; // [a, b, c, d] for ax + by + cz + d = 0
+  bool isDeleted; // Face deletion flag (for simplification)
 
-  // Default constructor
-  Face() : v1(0), v2(0), v3(0), normal(glm::vec3(0.0f)), planeEquation(glm::vec4(0.0f)) {}
-
-  /**
-   * Constructor with vertex positions
-   * 
-   * 정점 위치로부터 면 법선과 평면 방정식 계산
-   * 
-   * @param idx1, idx2, idx3 정점 인덱스
-   * @param pos1, pos2, pos3 정점 위치 (3D coordinates)
-   */
-  Face(int idx1, int idx2, int idx3,
-       const glm::vec3 &pos1, const glm::vec3 &pos2, const glm::vec3 &pos3)
-      : v1(idx1), v2(idx2), v3(idx3)
-  {
-    // Compute face normal using cross product
-    // normal = normalize( (pos2 - pos1) × (pos3 - pos1) )
-    glm::vec3 edge1 = pos2 - pos1;  // Edge vector 1
-    glm::vec3 edge2 = pos3 - pos1;  // Edge vector 2
+  void computeNormal(const glm::vec3 &pos1, const glm::vec3 &pos2, const glm::vec3 &pos3){
+    // Compute normal from cross product
+    glm::vec3 edge1 = pos2 - pos1;
+    glm::vec3 edge2 = pos3 - pos1;
     normal = glm::normalize(glm::cross(edge1, edge2));
 
-    // Compute plane equation: ax + by + cz + d = 0
-    // where (a,b,c) = normal, d = -dot(normal, point_on_plane)
+    // Compute d from plane equation: dot(normal, point) + d = 0
     float d = -glm::dot(normal, pos1);
 
-    // Store as vec4: [a, b, c, d]
     planeEquation = glm::vec4(normal.x, normal.y, normal.z, d);
   }
-};
+
+  // Constructor with vertex positions
+  Face(int idx1, int idx2, int idx3,
+       const glm::vec3 &pos1, const glm::vec3 &pos2, const glm::vec3 &pos3)
+      : v1(idx1), v2(idx2), v3(idx3), isDeleted(false)
+  {
+    computeNormal(pos1, pos2, pos3);
   }
 };
+
+#endif // FACE_H

@@ -1,7 +1,7 @@
 
 /*
  * QEM Simplification - Main Application
- * 
+ *
  * Quadric Error Metric (QEM) 기반 메시 단순화 애플리케이션
  * - OBJ 파일 로딩 및 렌더링
  * - Trackball 카메라 컨트롤
@@ -24,46 +24,51 @@
 #include "common.h"
 #include "Mesh.h"
 #include <map>
+#include <queue>
+#include "QEM.h"
 
 // =============================================================================
 // Global Variables
 // =============================================================================
 
 // Window Configuration
-const GLuint WIN_W = 1600;  // Window width
-const GLuint WIN_H = 900;   // Window height
-const GLuint WIN_X = 800;   // Window X position
-const GLuint WIN_Y = 450;   // Window Y position
+const GLuint WIN_W = 1600; // Window width
+const GLuint WIN_H = 900;	 // Window height
+const GLuint WIN_X = 800;	 // Window X position
+const GLuint WIN_Y = 450;	 // Window Y position
 float aspectRatio = (float)WIN_W / (float)WIN_H;
 GLFWwindow *window;
 
 // Mesh Data
-Mesh mesh;                  // Main mesh data structure (vertices, edges, faces)
-int simplificationLevel = 0; // Current simplification level (for testing)
+Mesh mesh;										// Main mesh data structure (vertices, edges, faces)
+int simplificationLevel = 0;	// Current simplification level (for testing)
+size_t activeVertexCount = 0; // Number of active (non-deleted) vertices for rendering
 
 // OpenGL Resources
-GLuint vao;         // Vertex Array Object
-GLuint vbo;         // Vertex Buffer Object
-GLuint textureID;   // Texture ID for mesh rendering
-GLuint programID;   // Shader program ID
+GLuint vao;				// Vertex Array Object
+GLuint vbo;				// Vertex Buffer Object
+GLuint textureID; // Texture ID for mesh rendering
+GLuint programID; // Shader program ID
 
 // Camera Configuration
-float theta = 0.f;  // Camera rotation angle (unused currently)
-float fov = 45.f;   // Field of view (adjustable with J/K keys)
+float theta = 0.f; // Camera rotation angle (unused currently)
+float fov = 45.f;	 // Field of view (adjustable with J/K keys)
 
 // Trackball Camera Control
-glm::mat4 matDrag = glm::mat4(1.f);     // Current drag rotation matrix
-glm::mat4 matUpdated = glm::mat4(1.f);  // Accumulated rotation matrix
-int dragMode = GL_FALSE;                 // Mouse drag state
-glm::vec2 dragStart = glm::vec2(1.f);   // Drag start position
+glm::mat4 matDrag = glm::mat4(1.f);		 // Current drag rotation matrix
+glm::mat4 matUpdated = glm::mat4(1.f); // Accumulated rotation matrix
+int dragMode = GL_FALSE;							 // Mouse drag state
+glm::vec2 dragStart = glm::vec2(1.f);	 // Drag start position
 
 // MVP Matrices
-glm::mat4 matModel = glm::mat4(1.f);  // Model matrix (object transform)
-glm::mat4 matView = glm::mat4(1.f);   // View matrix (camera transform)
-glm::mat4 matProj = glm::mat4(1.f);   // Projection matrix
+glm::mat4 matModel = glm::mat4(1.f); // Model matrix (object transform)
+glm::mat4 matView = glm::mat4(1.f);	 // View matrix (camera transform)
+glm::mat4 matProj = glm::mat4(1.f);	 // Projection matrix
 
 // Unused legacy variable
 GLfloat color[4] = {0.933f, 0.769f, 0.898f, 1.0f};
+
+unsigned int originalVertexCount = 0; // Original vertex count (for tracking simplification progress)
 
 // =============================================================================
 // Callback Functions
@@ -87,30 +92,56 @@ void DebugLog(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei le
 
 /**
  * Update VBO with current mesh data
- * 
+ *
  * Mesh 데이터를 GPU VBO에 업로드
  * - Simplification 후 또는 mesh 변경 시에만 호출해야 함
  * - 매 프레임 호출하면 성능 저하 발생
+ *
+ * @return 렌더링할 vertex 수 (삭제된 vertex 제외)
  */
 
-void updateRenderData()
+// Extract rendering data from mesh
+std::vector<glm::vec4> verticesVec4; // Position data (vec3 → vec4 for homogeneous coords)
+std::vector<glm::vec4> colors;			 // Vertex colors
+std::vector<glm::vec2> uvs;					 // Texture coordinates
+size_t updateRenderData()
 {
-	// Extract rendering data from mesh
-	std::vector<glm::vec4> verticesVec4;  // Position data (vec3 → vec4 for homogeneous coords)
-	std::vector<glm::vec4> colors;        // Vertex colors
-	std::vector<glm::vec2> uvs;           // Texture coordinates
+	verticesVec4.clear();
+	colors.clear();
+	uvs.clear();
 	
-	for (const auto &v : mesh.vertices)
+	// Render based on FACES, not vertices
+	// Each face contributes 3 vertices to the rendering buffer
+	for (const Face &face : mesh.faces)
 	{
-		verticesVec4.push_back(glm::vec4(v.position, 1.0f));  // w=1 for position
-		colors.push_back(v.color);
-		uvs.push_back(v.texCoord);
+		if (face.isDeleted)
+			continue; // Skip deleted faces
+		
+		// Add the 3 vertices of this face
+		const Vertex &v1 = mesh.vertices[face.v1];
+		const Vertex &v2 = mesh.vertices[face.v2];
+		const Vertex &v3 = mesh.vertices[face.v3];
+		
+		// Positions
+		verticesVec4.push_back(glm::vec4(v1.position, 1.0f));
+		verticesVec4.push_back(glm::vec4(v2.position, 1.0f));
+		verticesVec4.push_back(glm::vec4(v3.position, 1.0f));
+		
+		// Colors
+		colors.push_back(v1.color);
+		colors.push_back(v2.color);
+		colors.push_back(v3.color);
+		
+		// UVs
+		uvs.push_back(v1.texCoord);
+		uvs.push_back(v2.texCoord);
+		uvs.push_back(v3.texCoord);
 	}
 
 	// Calculate buffer sizes
-	size_t vertexSize = mesh.vertices.size() * sizeof(glm::vec4);
-	size_t colorSize = mesh.vertices.size() * sizeof(glm::vec4);
-	size_t uvSize = mesh.vertices.size() * sizeof(glm::vec2);
+	size_t vertexSize = verticesVec4.size() * sizeof(glm::vec4);
+	size_t colorSize = colors.size() * sizeof(glm::vec4);
+	size_t uvSize = uvs.size() * sizeof(glm::vec2);
 
 	// Upload data to GPU
 	// Layout: [positions | colors | uvs]
@@ -129,11 +160,107 @@ void updateRenderData()
 	// Location 2: texCoord (vec2)
 	glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, (void *)(vertexSize + colorSize));
 	glEnableVertexAttribArray(2);
+
+	return verticesVec4.size(); // Return actual vertex count
 }
 
 /**
- * Initialize OpenGL resources
+ * Edge Comparator for priority queue
+ * Min-heap: 작은 cost가 우선순위가 높음 (먼저 collapse)
+ */
+struct EdgeComparator
+{
+	bool operator()(const Edge &a, const Edge &b) const
+	{
+		return a.cost > b.cost; // Min-heap based on collapse cost
+	}
+};
+
+std::priority_queue<Edge, std::vector<Edge>, EdgeComparator> edgeQueue;
+
+/**
+ * Mesh Simplification using QEM
  * 
+ * Lazy evaluation: edge cost는 필요할 때만 재계산
+ * isDirty flag로 cost가 오래되었는지 추적
+ * 
+ * 한 번 호출 시 하나의 edge만 collapse
+ */
+void meshSimplify()
+{
+	// Initialize queue on first call (when empty)
+	if (edgeQueue.empty())
+	{
+		for (int i = 0; i < mesh.edges.size(); i++)
+		{
+			if (mesh.edges[i].isDeleted)
+				continue; // Skip deleted edges
+			computeCost(mesh.edges[i], mesh.vertices);
+			mesh.edges[i].isDirty = false;
+			edgeQueue.push(mesh.edges[i]);
+		}
+	}
+
+	int count = 0;
+	// Perform ONE edge collapse per call
+	while (!edgeQueue.empty())
+	{
+		Edge edge = edgeQueue.top();
+		edgeQueue.pop();
+
+		// Find the edge in mesh.edges array (to check isDirty and isDeleted)
+		int edgeIndex = -1;
+		for (int i = 0; i < mesh.edges.size(); i++)
+		{
+			// Check both directions since edge can be stored as (v1,v2) or (v2,v1)
+			if ((mesh.edges[i].v1 == edge.v1 && mesh.edges[i].v2 == edge.v2) ||
+			    (mesh.edges[i].v1 == edge.v2 && mesh.edges[i].v2 == edge.v1))
+			{
+				edgeIndex = i;
+				break;
+			}
+		}
+
+		if (edgeIndex == -1 || mesh.edges[edgeIndex].isDeleted)
+		{
+			// Edge already deleted, try next one
+			continue;
+		}
+
+		// Check if cost is outdated (lazy evaluation)
+		if (mesh.edges[edgeIndex].isDirty)
+		{
+			// Recompute cost and reinsert into queue
+			computeCost(mesh.edges[edgeIndex], mesh.vertices);
+			mesh.edges[edgeIndex].isDirty = false;
+			edgeQueue.push(mesh.edges[edgeIndex]);
+			continue; // Try next edge
+		}
+
+		// Perform edge collapse
+		edgeCollapse(mesh, mesh.edges[edgeIndex]);
+
+		int newVertexIndex = mesh.edges[edgeIndex].v1; // Use actual edge from mesh, not queue copy
+
+		// Mark affected edges as dirty and reinsert into queue
+		for (int i = 0; i < mesh.edges.size(); i++)
+		{
+			if (mesh.edges[i].isDeleted)
+				continue;
+			if (mesh.edges[i].v1 == newVertexIndex || mesh.edges[i].v2 == newVertexIndex)
+			{
+				mesh.edges[i].isDirty = true;
+				// Reinsert into queue so it gets reevaluated
+				edgeQueue.push(mesh.edges[i]);
+			}
+		}
+		++count;
+		if(count >= originalVertexCount / 100) break;
+	}
+}
+/**
+ * Initialize OpenGL resources
+ *
  * OpenGL 초기화:
  * - Shader 로딩
  * - VAO/VBO 생성
@@ -149,7 +276,7 @@ void initFunc()
 		printf("Shader loading failed!\n");
 		return;
 	}
-
+	originalVertexCount = mesh.vertices.size(); // Store original vertex count for tracking
 	// Create and bind VAO (Vertex Array Object)
 	glGenVertexArrays(1, &vao);
 	glBindVertexArray(vao);
@@ -159,8 +286,8 @@ void initFunc()
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
 	// Upload initial mesh data to GPU
-	updateRenderData();
-	
+	activeVertexCount = updateRenderData();
+
 	// Set clear color (sky blue background)
 	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
 	glClearDepthf(1.0f);
@@ -168,13 +295,13 @@ void initFunc()
 
 	// Enable face culling (back-face culling for performance)
 	glEnable(GL_CULL_FACE);
-	glFrontFace(GL_CCW);  // Counter-clockwise winding order
-	glCullFace(GL_BACK);  // Cull back faces
+	glFrontFace(GL_CCW); // Counter-clockwise winding order
+	glCullFace(GL_BACK); // Cull back faces
 }
 
 /**
  * Update per-frame data
- * 
+ *
  * 프레임마다 업데이트:
  * - 카메라 뷰 행렬 (현재는 고정 위치)
  * - 투영 행렬 (FOV 변경 시 업데이트)
@@ -183,26 +310,26 @@ void updateFunc()
 {
 	float elapsedTime = (float)glfwGetTime();
 	theta = elapsedTime * (3.141592f / 2.f);
-	
+
 	// Camera setup
 	const float CAMERA_DISTANCE = 3.0f;
 	matView = glm::lookAt(
 			// Camera position (could enable rotation with theta)
-			glm::vec3(0.f, 0.f, CAMERA_DISTANCE),  // Eye position
-			glm::vec3(0.f, 0.f, 0.f),              // Look-at target (origin)
-			glm::vec3(0.f, 1.f, 0.f));             // Up vector
-	
+			glm::vec3(0.f, 0.f, CAMERA_DISTANCE), // Eye position
+			glm::vec3(0.f, 0.f, 0.f),							// Look-at target (origin)
+			glm::vec3(0.f, 1.f, 0.f));						// Up vector
+
 	// Projection matrix (perspective)
 	matProj = glm::perspectiveRH(
-			glm::radians(fov),   // Field of view (adjustable with J/K keys)
-			aspectRatio,         // Aspect ratio (width/height)
-			0.1f,                // Near clipping plane
-			50.0f);              // Far clipping plane
+			glm::radians(fov), // Field of view (adjustable with J/K keys)
+			aspectRatio,			 // Aspect ratio (width/height)
+			0.1f,							 // Near clipping plane
+			50.0f);						 // Far clipping plane
 }
 
 /**
  * Render the scene
- * 
+ *
  * 렌더링 파이프라인:
  * 1. Clear buffers
  * 2. Set MVP matrices
@@ -217,12 +344,12 @@ void drawFunc()
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
 	glDepthRange(0.f, 1.f);
-	
+
 	// Get current window size
 	GLint win_w, win_h;
 	glfwGetWindowSize(window, &win_w, &win_h);
 	aspectRatio = (float)win_w / (float)win_h;
-	
+
 	// Mini-map viewport configuration (top-right corner)
 	const float MINIMAP_X_RATIO = 0.7f;
 	const float MINIMAP_Y_RATIO = 0.05f;
@@ -240,10 +367,10 @@ void drawFunc()
 	GLuint loc;
 	loc = glGetUniformLocation(programID, "modelMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matModel));
-	
+
 	loc = glGetUniformLocation(programID, "viewMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matView));
-	
+
 	loc = glGetUniformLocation(programID, "projMat");
 	glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(matProj));
 
@@ -253,27 +380,27 @@ void drawFunc()
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, textureID);
 		loc = glGetUniformLocation(programID, "textureSampler");
-		glUniform1i(loc, 0);  // Texture unit 0
+		glUniform1i(loc, 0); // Texture unit 0
 		loc = glGetUniformLocation(programID, "useTexture");
-		glUniform1i(loc, 1);  // Enable texture in shader
+		glUniform1i(loc, 1); // Enable texture in shader
 	}
 	else
 	{
 		loc = glGetUniformLocation(programID, "useTexture");
-		glUniform1i(loc, 0);  // Use vertex colors instead
+		glUniform1i(loc, 0); // Use vertex colors instead
 	}
 
 	// Draw main viewport (full screen)
 	glViewport(0, 0, win_w, win_h);
-	glDrawArrays(GL_TRIANGLES, 0, mesh.vertices.size());
+	glDrawArrays(GL_TRIANGLES, 0, verticesVec4.size());
 
 	// Draw mini-map viewport (top-right corner)
 	glEnable(GL_SCISSOR_TEST);
 	glScissor(map_x, map_y, map_w, map_h);
 	glViewport(map_x, map_y, map_w, map_h);
-	glClearColor(0.5f, 0.5f, 1.f, 1.f);  // Bluish background for mini-map
+	glClearColor(0.5f, 0.5f, 1.f, 1.f); // Bluish background for mini-map
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glDrawArrays(GL_TRIANGLES, 0, mesh.vertices.size());
+	glDrawArrays(GL_TRIANGLES, 0, verticesVec4.size());
 	glScissor(0, 0, win_w, win_h);
 	glDisable(GL_SCISSOR_TEST);
 
@@ -313,7 +440,7 @@ void mouseButtonFunc(GLFWwindow *win, int button, int action, int mods)
 		glfwGetCursorPos(win, &x, &y);
 		dragStart = glm::vec2((GLfloat)x, (GLfloat)y);
 		break;
-		
+
 	case GLFW_RELEASE:
 		// End dragging and accumulate rotation
 		dragMode = GL_FALSE;
@@ -321,8 +448,8 @@ void mouseButtonFunc(GLFWwindow *win, int button, int action, int mods)
 		glm::vec2 dragCur = glm::vec2((GLfloat)x, (GLfloat)y);
 		matDrag = calcTrackball(dragStart, dragCur, (float)WIN_W, (float)WIN_H);
 		matModel = matDrag * matUpdated;
-		matDrag = glm::mat4(1.0F);   // Reset drag matrix
-		matUpdated = matModel;        // Save accumulated rotation
+		matDrag = glm::mat4(1.0F); // Reset drag matrix
+		matUpdated = matModel;		 // Save accumulated rotation
 		break;
 	}
 	fflush(stdout);
@@ -330,7 +457,7 @@ void mouseButtonFunc(GLFWwindow *win, int button, int action, int mods)
 
 /**
  * Keyboard callback
- * 
+ *
  * Controls:
  * - ESC: Exit application
  * - J/K: Increase/decrease FOV
@@ -348,7 +475,7 @@ void keyFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
 			glfwSetWindowShouldClose(window, GL_TRUE);
 		}
 		break;
-		
+
 	case GLFW_KEY_J:
 		if (action == GLFW_PRESS)
 		{
@@ -357,7 +484,7 @@ void keyFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
 			printf("FOV: %.1f\n", fov);
 		}
 		break;
-		
+
 	case GLFW_KEY_K:
 		if (action == GLFW_PRESS)
 		{
@@ -366,15 +493,16 @@ void keyFunc(GLFWwindow *window, int key, int scancode, int action, int mods)
 			printf("FOV: %.1f\n", fov);
 		}
 		break;
-		
+
 	case GLFW_KEY_SPACE:
+	{
 		// Trigger mesh simplification (implementation in progress)
 		simplificationLevel++;
-		// TODO: Implement simplifyMesh(mesh, simplificationLevel);
-		updateRenderData();  // Refresh VBO after simplification
-		printf("Simplification level: %d\n", simplificationLevel);
+		meshSimplify();
+		activeVertexCount = updateRenderData(); // Refresh VBO after simplification
 		break;
-		
+	}
+
 	default:
 		break;
 	}
@@ -411,11 +539,11 @@ int main(int argc, char *arvg[])
 	// -------------------------------------------------------------------------
 	// 2. Load OBJ mesh file
 	// -------------------------------------------------------------------------
-	std::vector<glm::vec3> vertices;  // Temporary storage for OBJ data
+	std::vector<glm::vec3> vertices; // Temporary storage for OBJ data
 	std::vector<glm::vec2> uvs;
 	std::vector<glm::vec3> normals;
 	int numVertices = 0;
-	
+
 	bool res = loadOBJ("../../resource/mesh.obj", vertices, uvs, normals);
 	if (!res)
 	{
@@ -431,6 +559,15 @@ int main(int argc, char *arvg[])
 	mesh.buildMesh(numVertices, vertices, uvs, normals);
 	printf("Mesh: %zu vertices, %zu faces, %zu edges\n",
 				 mesh.vertices.size(), mesh.faces.size(), mesh.edges.size());
+
+	// -------------------------------------------------------------------------
+	// 3.5. Initialize Quadrics for all vertices
+	// -------------------------------------------------------------------------
+	for (int i = 0; i < mesh.vertices.size(); i++)
+	{
+		computeQuadric(i, mesh.vertices, mesh.faces);
+	}
+	printf("Quadrics initialized for all vertices\n");
 
 	// -------------------------------------------------------------------------
 	// 4. Load texture
@@ -451,7 +588,7 @@ int main(int argc, char *arvg[])
 	glDebugMessageCallback(DebugLog, NULL);
 
 	initFunc();
-	
+
 	// -------------------------------------------------------------------------
 	// 6. Main rendering loop
 	// -------------------------------------------------------------------------
@@ -459,10 +596,10 @@ int main(int argc, char *arvg[])
 	{
 		// Update per-frame data (camera, projection)
 		updateFunc();
-		
+
 		// Render scene
 		drawFunc();
-		
+
 		// Check for OpenGL errors
 		GLenum err = glGetError();
 		if (err != GL_NO_ERROR)
@@ -470,12 +607,12 @@ int main(int argc, char *arvg[])
 			printf("OpenGL error: 0x%x\n", err);
 			fflush(stdout);
 		}
-		
+
 		// Swap buffers and poll events
 		glfwSwapBuffers(window);
 		glfwPollEvents();
 	}
-	
+
 	// -------------------------------------------------------------------------
 	// 7. Cleanup
 	// -------------------------------------------------------------------------

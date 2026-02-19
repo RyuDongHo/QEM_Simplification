@@ -1,3 +1,6 @@
+#ifndef MESH_H
+#define MESH_H
+
 /**
  * Mesh.h
  * 
@@ -25,6 +28,7 @@ public:
   std::vector<Vertex> vertices;  // 메시의 모든 정점
   std::vector<Edge> edges;       // 메시의 모든 간선 (unique)
   std::vector<Face> faces;       // 메시의 모든 면 (triangles)
+  int deletedVertices = 0;         // 삭제된 정점 수 (simplification 진행 상황 추적용)
 
   /**
    * Build mesh from OBJ data
@@ -44,34 +48,68 @@ public:
                  const std::vector<glm::vec2> &uvs, const std::vector<glm::vec3> &normals)
   {
     // -----------------------------------------------------------------------
-    // Step 1: Build vertices from OBJ data
+    // Step 0: Vertex welding - merge vertices with same position
     // -----------------------------------------------------------------------
+    std::vector<int> vertexRemap(numVertices); // Maps old index -> new index
+    
     for (int i = 0; i < numVertices; ++i)
     {
-      // Create vertex with position, normal, UV, and default white color
-      this->vertices.push_back(Vertex(vertices[i], glm::vec3(0.0f), glm::vec2(0.0f), glm::vec4(1.0f)));
-      this->vertices[i].normal = normals[i];
-      this->vertices[i].texCoord = uvs[i];
+      glm::vec3 pos = vertices[i];
+      
+      // Check if we already have a vertex at this position
+      int existingIdx = -1;
+      for (int j = 0; j < this->vertices.size(); ++j)
+      {
+        // Compare positions with small epsilon for floating point
+        if (glm::length(this->vertices[j].position - pos) < 0.0001f)
+        {
+          existingIdx = j;
+          break;
+        }
+      }
+      
+      if (existingIdx == -1)
+      {
+        // New unique vertex
+        int newIndex = this->vertices.size();
+        vertexRemap[i] = newIndex;
+        this->vertices.push_back(Vertex(pos, normals[i], uvs[i], glm::vec4(1.0f)));
+      }
+      else
+      {
+        // Reuse existing vertex, average normal and UV
+        vertexRemap[i] = existingIdx;
+        this->vertices[existingIdx].normal = glm::normalize(this->vertices[existingIdx].normal + normals[i]);
+        this->vertices[existingIdx].texCoord = (this->vertices[existingIdx].texCoord + uvs[i]) * 0.5f;
+      }
     }
 
     // -----------------------------------------------------------------------
-    // Step 2: Build faces (assume OBJ is already triangulated)
+    // Step 1: Build faces with remapped vertex indices
     // -----------------------------------------------------------------------
     for (int i = 0; i < numVertices; i += 3)
     {
       if (i + 2 < numVertices)
       {
-        // Create face with 3 vertex indices and compute plane equation
-        Face face(i, i + 1, i + 2,
-                  this->vertices[i].position,
-                  this->vertices[i + 1].position,
-                  this->vertices[i + 2].position);
+        int v1 = vertexRemap[i];
+        int v2 = vertexRemap[i + 1];
+        int v3 = vertexRemap[i + 2];
+        
+        // Skip degenerate faces
+        if (v1 == v2 || v2 == v3 || v3 == v1)
+          continue;
+        
+        // Create face with remapped vertex indices
+        Face face(v1, v2, v3,
+                  this->vertices[v1].position,
+                  this->vertices[v2].position,
+                  this->vertices[v3].position);
         faces.push_back(face);
       }
     }
 
     // -----------------------------------------------------------------------
-    // Step 3: Extract unique edges from faces
+    // Step 2: Extract unique edges from faces
     // -----------------------------------------------------------------------
     // Use map to filter duplicate edges
     // Edge (v1, v2) === Edge (v2, v1), so normalize with min/max
@@ -103,3 +141,5 @@ public:
     }
   }
 };
+
+#endif // MESH_H

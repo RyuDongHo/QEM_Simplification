@@ -1,6 +1,9 @@
+#ifndef VERTEX_H
+#define VERTEX_H
+
 /**
  * Vertex.h
- * 
+ *
  * 메시의 정점 (Mesh Vertex)
  * - Position: 3D 위치
  * - Normal: 정점 법선 (인접 면들의 평균)
@@ -20,21 +23,24 @@
 class Vertex
 {
 public:
-  glm::vec3 position;                       // 3D position
-  glm::vec3 normal;                         // Vertex normal
-  glm::vec2 texCoord;                       // Texture UV coordinates
-  glm::vec4 color;                          // Vertex color (RGBA)
-  std::vector<int> adjacentVertices;        // Adjacent vertex indices (optional)
-  glm::mat4 quadric;                        // QEM quadric matrix Q (4x4)
+  glm::vec3 position;                // 3D position
+  glm::vec3 normal;                  // Vertex normal
+  glm::vec2 texCoord;                // Texture UV coordinates
+  glm::vec4 color;                   // Vertex color (RGBA)
+  std::vector<int> adjacentVertices; // Adjacent vertex indices (optional)
+  glm::mat4 quadric;                 // QEM quadric matrix Q (4x4)
+  bool isDeleted;                    // Vertex deletion flag (for simplification)
 
   /**
    * Constructor
-   * 
+   *
    * @param pos 정점 위치
    * @param norm 법선 벡터
    * @param uv 텍스처 좌표
    * @param col 색상
    */
   Vertex(const glm::vec3 &pos, const glm::vec3 &norm, const glm::vec2 &uv, const glm::vec4 &col)
-      : position(pos), normal(norm), texCoord(uv), color(col), quadric(glm::mat4(0.0f)) {}
+      : position(pos), normal(norm), texCoord(uv), color(col), quadric(glm::mat4(0.0f)), isDeleted(false) {}
 };
+
+#endif // VERTEX_H

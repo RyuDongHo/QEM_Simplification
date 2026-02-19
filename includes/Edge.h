@@ -1,3 +1,6 @@
+#ifndef EDGE_H
+#define EDGE_H
+
 /**
  * Edge.h
  * 
@@ -22,6 +25,8 @@ public:
   float cost;                  // QEM collapse cost (quadric error)
   glm::vec3 optimalPosition;   // Optimal position after collapse
   bool isBoundary;             // 경계 간선 여부 (boundary edge flag)
+  bool isDirty;                // Collapse 후 메시가 변경되었는지 여부 (for lazy updates)
+  bool isDeleted;              // Edge deletion flag (for simplification)
   
   /**
    * Constructor
@@ -29,8 +34,11 @@ public:
    * @param vertex1, vertex2 양 끝점의 vertex 인덱스
    */
   Edge(int vertex1, int vertex2)
-      : v1(vertex1), v2(vertex2) {
+      : v1(vertex1), v2(vertex2), isDeleted(false) {
         isBoundary = false;  // Default: not boundary
+        isDirty = false;     // Default: not dirty
         cost = 0.f;          // Cost will be computed later
       }
 };
+
+#endif // EDGE_H

@@ -75,15 +75,8 @@ resource/
 
 ## 기능
 
-- [x] OpenGL 기반 3D 렌더링 파이프라인 구축
-- [x] 기본 VAO/VBO 설정 및 메시 렌더링
-- [x] Shader 시스템 구축 (vertex/fragment shader)
-- [x] OBJ 파일 로더 구현 (vertices, UVs, normals 지원)
-- [x] 텍스처 로딩 및 매핑 (stb_image 사용)
-- [x] 트랙볼 카메라 컨트롤 (마우스 드래그로 회전)
-- [ ] QEM 알고리즘 구현
-- [ ] Edge Collapse 연산
-- [ ] 메시 단순화 파라미터 조절 UI
+- 트랙볼 카메라 컨트롤 (마우스 드래그로 회전)
+- QEM based simplification (spacebar 클릭하여 테스트)
 
 ## 참고 문헌
 
