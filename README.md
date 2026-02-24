@@ -110,8 +110,7 @@ cd build/Release
 
 ```
 resource/
-├── mesh.obj          # 테스트할 3D 메시 파일 (필수)
-├── texture.jpg       # 메시 텍스처 파일 (선택, 없으면 색상만 렌더링)
+├── mesh.obj          # 테스트할 3D 메시 파일
 ```
 
 **참고:**
