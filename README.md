@@ -69,7 +69,8 @@ cd build/Release
 
 ## How to add a mesh
 
-make "resource" directory at root
+make "resource" directory at root.
+
 mesh file name should be "mesh.glb". Only glb files be supported.
 ```
 resource/
