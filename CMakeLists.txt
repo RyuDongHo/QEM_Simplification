@@ -8,8 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # GLEW 경로 설정 (lib 폴더 내부)
 set(GLEW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/lib/glew")
 set(GLEW_INCLUDE_DIRS "${GLEW_ROOT}/include")
-set(GLEW_LIBRARIES "${GLEW_ROOT}/lib/Release/x64/glew32.lib")
-set(GLEW_DLL "${GLEW_ROOT}/bin/Release/x64/glew32.dll")
+set(GLEW_LIBRARIES "${GLEW_ROOT}/lib/Release/x64/glew32s.lib")
 
 # GLFW 경로 설정 (lib 폴더 내부)
 set(GLFW_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/lib/glfw")
@@ -53,13 +52,6 @@ target_link_libraries(${PROJECT_NAME}
     ${OPENGL_LIBRARIES}
 )
 
-# GLEW DLL을 빌드 디렉토리로 복사 (런타임에 필요)
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-    "${GLEW_DLL}"
-    $<TARGET_FILE_DIR:${PROJECT_NAME}>
-)
-
 # Shader 파일을 빌드 디렉토리로 복사
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -70,8 +62,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     $<TARGET_FILE_DIR:${PROJECT_NAME}>
 )
 
-# GLEW 정적 링크를 위한 정의 (필요시 주석 해제)
-# target_compile_definitions(${PROJECT_NAME} PRIVATE GLEW_STATIC)
+# GLEW 정적 링크를 위한 정의
+target_compile_definitions(${PROJECT_NAME} PRIVATE GLEW_STATIC)
 
 # Visual Studio에서 폴더 구조 유지
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${SOURCES} ${HEADERS})
