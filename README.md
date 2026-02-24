@@ -25,7 +25,7 @@ Quadric Error Metric(QEM) based mesh simplification system
   - license: zlib/libpng License
   
 - **GLM** - OpenGL Mathematics
-  - 출처: https://github.com/g-truc/glm
+  - source: https://github.com/g-truc/glm
   - license: MIT License
 
 ### Utils
