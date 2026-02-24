@@ -4,6 +4,16 @@
 #include <sstream>
 #include <map>
 
+// Define STB implementations before including tiny_gltf
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+
+// Configure tinygltf
+#define TINYGLTF_IMPLEMENTATION
+#define TINYGLTF_NOEXCEPTION
+#define JSON_NOEXCEPTION
+#include "tiny_gltf.h"
+
 // 셰이더 파일 읽기
 std::string readShaderFile(const char* filePath) {
     std::ifstream file(filePath);
@@ -100,202 +110,198 @@ glm::mat4 calcTrackball(const glm::vec2& start, const glm::vec2& cur, float winW
 	return m;
 }
 
-// OBJ Loader
-bool loadOBJ(
-	const char * path, 
-	std::vector<glm::vec3> & out_vertices, 
+// GLB Loader (loads mesh and embedded texture)
+bool loadGLB(
+	const char * path,
+	std::vector<glm::vec3> & out_vertices,
 	std::vector<glm::vec2> & out_uvs,
-	std::vector<glm::vec3> & out_normals
-){
-	printf("Loading OBJ file %s...\n", path);
-
-	std::vector<unsigned int> vertexIndices, uvIndices, normalIndices;
-	std::vector<glm::vec3> temp_vertices; 
-	std::vector<glm::vec2> temp_uvs;
-	std::vector<glm::vec3> temp_normals;
-
-
-	FILE * file = fopen(path, "r");
-	if( file == NULL ){
-		printf("Impossible to open the file ! Are you in the right path ? See Tutorial 1 for details\n");
-		getchar();
+	std::vector<glm::vec3> & out_normals,
+	GLuint * out_textureID
+) {
+	printf("Loading GLB file %s...\n", path);
+	
+	tinygltf::Model model;
+	tinygltf::TinyGLTF loader;
+	std::string err;
+	std::string warn;
+	
+	bool ret = loader.LoadBinaryFromFile(&model, &err, &warn, path);
+	
+	if (!warn.empty()) {
+		printf("Warn: %s\n", warn.c_str());
+	}
+	
+	if (!err.empty()) {
+		printf("Error: %s\n", err.c_str());
+	}
+	
+	if (!ret) {
+		printf("Failed to parse glTF\n");
 		return false;
 	}
-
-	while( 1 ){
-
-		char lineHeader[128];
-		// read the first word of the line
-		int res = fscanf(file, "%s", lineHeader);
-		if (res == EOF)
-			break; // EOF = End Of File. Quit the loop.
-
-		// else : parse lineHeader
-		
-		if ( strcmp( lineHeader, "v" ) == 0 ){
-			glm::vec3 vertex;
-			fscanf(file, "%f %f %f\n", &vertex.x, &vertex.y, &vertex.z );
-			temp_vertices.push_back(vertex);
-		}else if ( strcmp( lineHeader, "vt" ) == 0 ){
-			glm::vec2 uv;
-			fscanf(file, "%f %f\n", &uv.x, &uv.y );
-			uv.y = -uv.y; // Invert V coordinate since we will only use DDS texture, which are inverted. Remove if you want to use TGA or BMP loaders.
-			temp_uvs.push_back(uv);
-		}else if ( strcmp( lineHeader, "vn" ) == 0 ){
-			glm::vec3 normal;
-			fscanf(file, "%f %f %f\n", &normal.x, &normal.y, &normal.z );
-			temp_normals.push_back(normal);
-		}else if ( strcmp( lineHeader, "f" ) == 0 ){
-			std::string vertex1, vertex2, vertex3;
-			unsigned int vertexIndex[3] = {0}, uvIndex[3] = {0}, normalIndex[3] = {0};
-			
-			// Read the rest of the line
-			char line[256];
-			fgets(line, 256, file);
-			
-			// Try v/vt/vn format (vertex/texture/normal)
-			int matches = sscanf(line, "%d/%d/%d %d/%d/%d %d/%d/%d\n", 
-			                     &vertexIndex[0], &uvIndex[0], &normalIndex[0], 
-			                     &vertexIndex[1], &uvIndex[1], &normalIndex[1], 
-			                     &vertexIndex[2], &uvIndex[2], &normalIndex[2]);
-			
-			if (matches != 9){
-				// Try v//vn format (vertex//normal, no texture)
-				matches = sscanf(line, "%d//%d %d//%d %d//%d\n", 
-				                 &vertexIndex[0], &normalIndex[0], 
-				                 &vertexIndex[1], &normalIndex[1], 
-				                 &vertexIndex[2], &normalIndex[2]);
+	
+	// Process each mesh in the glTF file
+	for (const auto& mesh : model.meshes) {
+		for (const auto& primitive : mesh.primitives) {
+			// Get vertex positions
+			if (primitive.attributes.find("POSITION") != primitive.attributes.end()) {
+				const tinygltf::Accessor& accessor = model.accessors[primitive.attributes.at("POSITION")];
+				const tinygltf::BufferView& bufferView = model.bufferViews[accessor.bufferView];
+				const tinygltf::Buffer& buffer = model.buffers[bufferView.buffer];
 				
-				if (matches == 6) {
-					// Ensure we have at least one default UV
-					if (temp_uvs.empty()) {
-						temp_uvs.push_back(glm::vec2(0.0f, 0.0f));
-					}
-					uvIndex[0] = uvIndex[1] = uvIndex[2] = 1;
-				} else {
-					// Try v v v format (vertex only, no texture/normal)
-					matches = sscanf(line, "%d %d %d\n", 
-					                 &vertexIndex[0], &vertexIndex[1], &vertexIndex[2]);
+				const float* positions = reinterpret_cast<const float*>(
+					&buffer.data[bufferView.byteOffset + accessor.byteOffset]);
+				
+				size_t vertexCount = accessor.count;
+				
+				// Get indices if available
+				std::vector<unsigned int> indices;
+				if (primitive.indices >= 0) {
+					const tinygltf::Accessor& indexAccessor = model.accessors[primitive.indices];
+					const tinygltf::BufferView& indexBufferView = model.bufferViews[indexAccessor.bufferView];
+					const tinygltf::Buffer& indexBuffer = model.buffers[indexBufferView.buffer];
 					
-					if (matches == 3) {
-						// Use default UV and normal
-						if (temp_uvs.empty()) {
-							temp_uvs.push_back(glm::vec2(0.0f, 0.0f));
+					if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT) {
+						const unsigned short* indexData = reinterpret_cast<const unsigned short*>(
+							&indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset]);
+						for (size_t i = 0; i < indexAccessor.count; ++i) {
+							indices.push_back(indexData[i]);
 						}
-						if (temp_normals.empty()) {
-							temp_normals.push_back(glm::vec3(0.0f, 0.0f, 1.0f));
+					} else if (indexAccessor.componentType == TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT) {
+						const unsigned int* indexData = reinterpret_cast<const unsigned int*>(
+							&indexBuffer.data[indexBufferView.byteOffset + indexAccessor.byteOffset]);
+						for (size_t i = 0; i < indexAccessor.count; ++i) {
+							indices.push_back(indexData[i]);
 						}
-						uvIndex[0] = uvIndex[1] = uvIndex[2] = 1;
-						normalIndex[0] = normalIndex[1] = normalIndex[2] = 1;
-					} else {
-						printf("File can't be read by our simple parser :-( Try exporting with other options\n");
-						printf("Unsupported face format: f %s", line);
-						fclose(file);
-						return false;
+					}
+				}
+				
+				// Get normals
+				const float* normals = nullptr;
+				if (primitive.attributes.find("NORMAL") != primitive.attributes.end()) {
+					const tinygltf::Accessor& normalAccessor = model.accessors[primitive.attributes.at("NORMAL")];
+					const tinygltf::BufferView& normalBufferView = model.bufferViews[normalAccessor.bufferView];
+					const tinygltf::Buffer& normalBuffer = model.buffers[normalBufferView.buffer];
+					normals = reinterpret_cast<const float*>(
+						&normalBuffer.data[normalBufferView.byteOffset + normalAccessor.byteOffset]);
+				}
+				
+				// Get texture coordinates
+				const float* texCoords = nullptr;
+				if (primitive.attributes.find("TEXCOORD_0") != primitive.attributes.end()) {
+					const tinygltf::Accessor& texCoordAccessor = model.accessors[primitive.attributes.at("TEXCOORD_0")];
+					const tinygltf::BufferView& texCoordBufferView = model.bufferViews[texCoordAccessor.bufferView];
+					const tinygltf::Buffer& texCoordBuffer = model.buffers[texCoordBufferView.buffer];
+					texCoords = reinterpret_cast<const float*>(
+						&texCoordBuffer.data[texCoordBufferView.byteOffset + texCoordAccessor.byteOffset]);
+				}
+				
+				// Build output arrays based on indices
+				if (!indices.empty()) {
+					for (unsigned int idx : indices) {
+						// Position
+						out_vertices.push_back(glm::vec3(
+							positions[idx * 3 + 0],
+							positions[idx * 3 + 1],
+							positions[idx * 3 + 2]
+						));
+						
+						// Normal
+						if (normals) {
+							out_normals.push_back(glm::vec3(
+								normals[idx * 3 + 0],
+								normals[idx * 3 + 1],
+								normals[idx * 3 + 2]
+							));
+						} else {
+							out_normals.push_back(glm::vec3(0.0f, 0.0f, 1.0f));
+						}
+						
+						// Texture coordinates
+						if (texCoords) {
+							out_uvs.push_back(glm::vec2(
+								texCoords[idx * 2 + 0],
+								texCoords[idx * 2 + 1]
+							));
+						} else {
+							out_uvs.push_back(glm::vec2(0.0f, 0.0f));
+						}
+					}
+				} else {
+					// No indices, use direct vertex access
+					for (size_t i = 0; i < vertexCount; ++i) {
+						// Position
+						out_vertices.push_back(glm::vec3(
+							positions[i * 3 + 0],
+							positions[i * 3 + 1],
+							positions[i * 3 + 2]
+						));
+						
+						// Normal
+						if (normals) {
+							out_normals.push_back(glm::vec3(
+								normals[i * 3 + 0],
+								normals[i * 3 + 1],
+								normals[i * 3 + 2]
+							));
+						} else {
+							out_normals.push_back(glm::vec3(0.0f, 0.0f, 1.0f));
+						}
+						
+						// Texture coordinates
+						if (texCoords) {
+							out_uvs.push_back(glm::vec2(
+								texCoords[i * 2 + 0],
+								texCoords[i * 2 + 1]
+							));
+						} else {
+							out_uvs.push_back(glm::vec2(0.0f, 0.0f));
+						}
 					}
 				}
 			}
-			
-			// Validate indices
-			if (vertexIndex[0] == 0 || vertexIndex[1] == 0 || vertexIndex[2] == 0 ||
-			    normalIndex[0] == 0 || normalIndex[1] == 0 || normalIndex[2] == 0) {
-				printf("Invalid face indices in line: f %s", line);
-				fclose(file);
-				return false;
-			}
-			
-			vertexIndices.push_back(vertexIndex[0]);
-			vertexIndices.push_back(vertexIndex[1]);
-			vertexIndices.push_back(vertexIndex[2]);
-			uvIndices    .push_back(uvIndex[0]);
-			uvIndices    .push_back(uvIndex[1]);
-			uvIndices    .push_back(uvIndex[2]);
-			normalIndices.push_back(normalIndex[0]);
-			normalIndices.push_back(normalIndex[1]);
-			normalIndices.push_back(normalIndex[2]);
-		}else{
-			// Probably a comment, eat up the rest of the line
-			char stupidBuffer[1000];
-			fgets(stupidBuffer, 1000, file);
 		}
-
 	}
-
-	// For each vertex of each triangle
-	for( unsigned int i=0; i<vertexIndices.size(); i++ ){
-
-		// Get the indices of its attributes
-		unsigned int vertexIndex = vertexIndices[i];
-		unsigned int uvIndex = uvIndices[i];
-		unsigned int normalIndex = normalIndices[i];
-		
-		// Check bounds
-		if (vertexIndex < 1 || vertexIndex > temp_vertices.size() ||
-		    uvIndex < 1 || uvIndex > temp_uvs.size() ||
-		    normalIndex < 1 || normalIndex > temp_normals.size()) {
-			printf("Index out of bounds: v=%d(max:%zu), vt=%d(max:%zu), vn=%d(max:%zu)\n",
-			       vertexIndex, temp_vertices.size(), 
-			       uvIndex, temp_uvs.size(), 
-			       normalIndex, temp_normals.size());
-			fclose(file);
-			return false;
-		}
-		
-		// Get the attributes thanks to the index
-		glm::vec3 vertex = temp_vertices[ vertexIndex-1 ];
-		glm::vec2 uv = temp_uvs[ uvIndex-1 ];
-		glm::vec3 normal = temp_normals[ normalIndex-1 ];
-		
-		// Put the attributes in buffers
-		out_vertices.push_back(vertex);
-		out_uvs     .push_back(uv);
-		out_normals .push_back(normal);
 	
+	printf("Loaded %zu vertices from GLB\n", out_vertices.size());
+	
+	// Load embedded texture if available and requested
+	if (out_textureID != nullptr && !model.textures.empty() && !model.images.empty()) {
+		const tinygltf::Texture& tex = model.textures[0];
+		const tinygltf::Image& image = model.images[tex.source];
+		
+		printf("Loading embedded texture: %dx%d, %d channels\n", 
+		       image.width, image.height, image.component);
+		
+		GLuint textureID;
+		glGenTextures(1, &textureID);
+		glBindTexture(GL_TEXTURE_2D, textureID);
+		
+		// Determine format based on channels
+		GLenum format = GL_RGB;
+		if (image.component == 1)
+			format = GL_RED;
+		else if (image.component == 3)
+			format = GL_RGB;
+		else if (image.component == 4)
+			format = GL_RGBA;
+		
+		glTexImage2D(GL_TEXTURE_2D, 0, format, image.width, image.height, 
+		             0, format, GL_UNSIGNED_BYTE, image.image.data());
+		glGenerateMipmap(GL_TEXTURE_2D);
+		
+		// Set texture parameters
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		
+		*out_textureID = textureID;
+		printf("Texture loaded from GLB (ID: %u)\n", textureID);
+	} else if (out_textureID != nullptr) {
+		*out_textureID = 0;
+		printf("No embedded texture found in GLB\n");
 	}
-	fclose(file);
+	
 	return true;
-}
-
-// Texture Loader
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-
-GLuint loadTexture(const char* imagepath) {
-	printf("Loading texture %s...\n", imagepath);
-	
-	int width, height, channels;
-	unsigned char* data = stbi_load(imagepath, &width, &height, &channels, 0);
-	
-	if (!data) {
-		printf("Failed to load texture: %s\n", imagepath);
-		return 0;
-	}
-	
-	printf("Texture loaded: %dx%d, %d channels\n", width, height, channels);
-	
-	GLuint textureID;
-	glGenTextures(1, &textureID);
-	glBindTexture(GL_TEXTURE_2D, textureID);
-	
-	// Set texture format based on channels
-	GLenum format = GL_RGB;
-	if (channels == 1)
-		format = GL_RED;
-	else if (channels == 3)
-		format = GL_RGB;
-	else if (channels == 4)
-		format = GL_RGBA;
-	
-	glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data);
-	glGenerateMipmap(GL_TEXTURE_2D);
-	
-	// Set texture parameters
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	
-	stbi_image_free(data);
-	
-	return textureID;
 }

@@ -55,6 +55,17 @@ void computeCost(Edge &edge, const std::vector<Vertex> &vertices);
 void computeQuadric(int vertexIndex, std::vector<Vertex> &vertices, const std::vector<Face> &faces);
 
 /**
+ * Compute all vertex quadrics efficiently (O(F) instead of O(V*F))
+ * 
+ * 모든 vertex의 quadric을 face를 한 번만 순회하여 계산
+ * 대용량 메시에 최적화된 버전
+ * 
+ * @param vertices 메시의 모든 vertex
+ * @param faces 메시의 모든 face
+ */
+void computeAllQuadrics(std::vector<Vertex> &vertices, const std::vector<Face> &faces);
+
+/**
  * Edge collapse operation (완전 수정 버전)
  *
  * Edge를 collapse하여 vertex를 병합:

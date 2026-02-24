@@ -3,9 +3,9 @@
  * QEM Simplification - Main Application
  *
  * Quadric Error Metric (QEM) 기반 메시 단순화 애플리케이션
- * - OBJ 파일 로딩 및 렌더링
+ * - GLB 파일 로딩 및 렌더링 (embedded texture 지원)
  * - Trackball 카메라 컨트롤
- * - QEM 알고리즘을 통한 메시 단순화 (구현 예정)
+ * - QEM 알고리즘을 통한 메시 단순화
  */
 
 #define GLM_ENABLE_EXPERIMENTAL
@@ -109,6 +109,12 @@ size_t updateRenderData()
 	verticesVec4.clear();
 	colors.clear();
 	uvs.clear();
+	
+	// Pre-allocate memory for better performance
+	size_t estimatedSize = mesh.faces.size() * 3;
+	verticesVec4.reserve(estimatedSize);
+	colors.reserve(estimatedSize);
+	uvs.reserve(estimatedSize);
 	
 	// Render based on FACES, not vertices
 	// Each face contributes 3 vertices to the rendering buffer
@@ -286,17 +292,19 @@ void initFunc()
 	glBindBuffer(GL_ARRAY_BUFFER, vbo);
 
 	// Upload initial mesh data to GPU
+	printf("Uploading mesh data to GPU...\n");
 	activeVertexCount = updateRenderData();
+	printf("GPU upload complete. Active vertex count: %zu\n", activeVertexCount);
 
 	// Set clear color (sky blue background)
 	glClearColor(0.5f, 0.8f, 0.8f, 1.0f);
 	glClearDepthf(1.0f);
 	glUseProgram(programID);
 
-	// Enable face culling (back-face culling for performance)
-	glEnable(GL_CULL_FACE);
-	glFrontFace(GL_CCW); // Counter-clockwise winding order
-	glCullFace(GL_BACK); // Cull back faces
+	// Disable face culling for GLB compatibility (some models have flipped normals)
+	glDisable(GL_CULL_FACE);
+	
+	printf("OpenGL initialization complete\n");
 }
 
 /**
@@ -312,11 +320,10 @@ void updateFunc()
 	theta = elapsedTime * (3.141592f / 2.f);
 
 	// Camera setup
-	const float CAMERA_DISTANCE = 3.0f;
 	matView = glm::lookAt(
 			// Camera position (could enable rotation with theta)
-			glm::vec3(0.f, 0.f, CAMERA_DISTANCE), // Eye position
-			glm::vec3(0.f, 0.f, 0.f),							// Look-at target (origin)
+			glm::vec3(50.f, 50.f, 50.f), // Eye position
+			glm::vec3(0.f, 10.f, 0.f),							// Look-at target (origin)
 			glm::vec3(0.f, 1.f, 0.f));						// Up vector
 
 	// Projection matrix (perspective)
@@ -324,7 +331,7 @@ void updateFunc()
 			glm::radians(fov), // Field of view (adjustable with J/K keys)
 			aspectRatio,			 // Aspect ratio (width/height)
 			0.1f,							 // Near clipping plane
-			50.0f);						 // Far clipping plane
+			5000.0f);						 // Far clipping plane
 }
 
 /**
@@ -537,17 +544,17 @@ int main(int argc, char *arvg[])
 	glfwSetMouseButtonCallback(window, mouseButtonFunc);
 
 	// -------------------------------------------------------------------------
-	// 2. Load OBJ mesh file
+	// 2. Load GLB mesh file (with embedded texture)
 	// -------------------------------------------------------------------------
-	std::vector<glm::vec3> vertices; // Temporary storage for OBJ data
+	std::vector<glm::vec3> vertices; // Temporary storage for GLB data
 	std::vector<glm::vec2> uvs;
 	std::vector<glm::vec3> normals;
 	int numVertices = 0;
 
-	bool res = loadOBJ("../../resource/mesh.obj", vertices, uvs, normals);
+	bool res = loadGLB("../../resource/mesh.glb", vertices, uvs, normals, &textureID);
 	if (!res)
 	{
-		printf("Failed to load OBJ file!\n");
+		printf("Failed to load GLB file!\n");
 		return -1;
 	}
 	numVertices = vertices.size();
@@ -563,19 +570,15 @@ int main(int argc, char *arvg[])
 	// -------------------------------------------------------------------------
 	// 3.5. Initialize Quadrics for all vertices
 	// -------------------------------------------------------------------------
-	for (int i = 0; i < mesh.vertices.size(); i++)
-	{
-		computeQuadric(i, mesh.vertices, mesh.faces);
-	}
+	printf("Initializing quadrics for %zu vertices...\n", mesh.vertices.size());
+	computeAllQuadrics(mesh.vertices, mesh.faces);
 	printf("Quadrics initialized for all vertices\n");
 
 	// -------------------------------------------------------------------------
-	// 4. Load texture
+	// 4. Check texture loading status
 	// -------------------------------------------------------------------------
-	textureID = loadTexture("../../resource/texture.jpg");
-	if (textureID == 0)
-	{
-		printf("Warning: Texture not loaded, using vertex colors\n");
+	if (textureID == 0) {
+		printf("Warning: No embedded texture in GLB file, using vertex colors\n");
 	}
 
 	// -------------------------------------------------------------------------

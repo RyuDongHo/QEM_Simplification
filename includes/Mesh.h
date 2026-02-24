@@ -31,14 +31,15 @@ public:
   int deletedVertices = 0;         // 삭제된 정점 수 (simplification 진행 상황 추적용)
 
   /**
-   * Build mesh from OBJ data
+   * Build mesh from GLB data
    * 
-   * OBJ 데이터로부터 Mesh 구조 생성:
+   * GLB 데이터로부터 Mesh 구조 생성:
    * 1. Vertices 생성 (position, normal, UV)
-   * 2. Faces 생성 (triangulated, plane equation 계산)
-   * 3. Edges 추출 (Face로부터, 중복 제거)
+   * 2. Vertex welding (중복 정점 제거)
+   * 3. Faces 생성 (triangulated, plane equation 계산)
+   * 4. Edges 추출 (Face로부터, 중복 제거)
    * 
-   * @param numVertices OBJ의 vertex 개수
+   * @param numVertices 입력 vertex 개수 (unrolled triangles)
    * @param vertices 정점 위치 배열
    * @param uvs 텍스처 좌표 배열
    * @param normals 법선 벡터 배열

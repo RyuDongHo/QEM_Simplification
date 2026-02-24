@@ -66,6 +66,8 @@ void computeQuadric(int vertexIndex, std::vector<Vertex> &vertices, const std::v
   vertices[vertexIndex].quadric = glm::mat4(0.0f);
 
   // Sum quadrics from all adjacent faces
+  // NOTE: This is called per-vertex and iterates all faces - O(V*F) complexity
+  // For large meshes, use computeAllQuadrics() instead for O(F) complexity
   for (const Face &face : faces)
   {
     if (face.isDeleted)
@@ -84,6 +86,32 @@ void computeQuadric(int vertexIndex, std::vector<Vertex> &vertices, const std::v
       // Add to vertex quadric
       vertices[vertexIndex].quadric += Kp;
     }
+  }
+}
+
+// Optimized: Compute all quadrics in O(F) time instead of O(V*F)
+void computeAllQuadrics(std::vector<Vertex> &vertices, const std::vector<Face> &faces)
+{
+  // Initialize all quadrics to zero
+  for (Vertex &v : vertices)
+  {
+    v.quadric = glm::mat4(0.0f);
+  }
+
+  // Iterate faces once and accumulate to vertex quadrics
+  for (const Face &face : faces)
+  {
+    if (face.isDeleted)
+      continue;
+
+    // Get plane equation
+    glm::vec4 p = face.planeEquation;
+    glm::mat4 Kp = glm::outerProduct(p, p);
+
+    // Add to all 3 vertices of this face
+    vertices[face.v1].quadric += Kp;
+    vertices[face.v2].quadric += Kp;
+    vertices[face.v3].quadric += Kp;
   }
 }
 

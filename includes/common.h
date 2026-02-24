@@ -29,15 +29,13 @@ glm::vec3 calcUnitVecByMousePosition(const glm::vec2& raw, float winW, float win
 // 트랙볼 회전 계산
 glm::mat4 calcTrackball(const glm::vec2& start, const glm::vec2& cur, float winW, float winH);
 
-// OBJ Loader
-bool loadOBJ(
-	const char * path, 
-	std::vector<glm::vec3> & out_vertices, 
-	std::vector<glm::vec2> & out_uvs, 
-	std::vector<glm::vec3> & out_normals
+// GLB Loader (loads mesh and embedded texture)
+bool loadGLB(
+	const char * path,
+	std::vector<glm::vec3> & out_vertices,
+	std::vector<glm::vec2> & out_uvs,
+	std::vector<glm::vec3> & out_normals,
+	GLuint * out_textureID = nullptr
 );
-
-// Texture Loader
-GLuint loadTexture(const char * imagepath);
 
 #endif // COMMON_H
