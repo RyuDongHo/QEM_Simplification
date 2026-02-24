@@ -121,3 +121,4 @@ resource/
 ## reference
 
 - paper: Garland, M., & Heckbert, P. S. (1997). "Surface simplification using quadric error metrics." *SIGGRAPH 97*.
+- 3d model: Stanford Bunny [by hackmans][https://skfb.ly/otyHx]
