@@ -1,7 +1,5 @@
 # QEM Simplification
 
-**Quadric Error Metric (QEM)** 기반 메시 단순화 소프트웨어입니다.
-
 ## description
 
 Quadric Error Metrci(QEM) based mesh simplification system
